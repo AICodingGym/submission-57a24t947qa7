@@ -1,0 +1,33 @@
+# Experiments (one line each: what changed | validation score | time)
+
+- baseline: selected_text = full text | train Jaccard 0.5886 (neutral 0.977, pos 0.315, neg 0.337) | <1 min
+- rl: roberta-large span extraction, 3 ep, lr 1.5e-5, bs32, best-of-halfepoch ckpt, folds 0-3 | OOF 0.7092 (4 folds; fold scores .716/.712/.708/.701) | ~4.5 min/fold on 1 A6000
+- rl + MBR (expected-Jaccard) decoding for all sentiments | OOF 0.7115 (neutral +0.010, pos/neg -0.003) | decode only
+- rl + MBR for neutral only, argmax for pos/neg | OOF 0.7132 | decode only
+- dl: deberta-v3-large, noisy targets | FAILED (NaN loss: transformers 5 loaded fp16 weights; fixed with dtype=float32) | ~3 min wasted
+- label-noise analysis: label = text[a-ex : b-ex+2].strip() where ex = extra spaces before clean span (a,b); forward(clean) reproduces train labels at Jaccard 0.9997 | analysis only
+- rlc: roberta-large, clean targets (+ shift at decode), 5 folds | OOF 0.7154 (pos .546 neg .549 neu .964) | ~4.3 min/fold
+- dlc: deberta-v3-large lr1e-5, clean targets, 5 folds | OOF 0.7243 (pos .553 neg .553 neu .976) | ~6 min/fold
+- ens rlc+dlc equal weights | OOF 0.7242 | -
+- ens rlc:1 dlc:2 + neutral MBR | OOF 0.7248 -> submission | -
+- ens rlc:1 dlc:2 + MBR(temp 0.5) all sentiments | OOF 0.7257 -> submission | -
+- elc: electra-large-discriminator lr1e-5, clean targets (token_type_ids on), 5 folds | OOF 0.7185 | ~5.5 min/fold
+- dlc2: dlc with seed 7 (seed-noise reference) | OOF 0.7239 (dlc 0.7243) | ~6 min/fold
+- dlcs: dlc + soft targets (0.5 one-hot + 0.5 Jaccard-proportional start/end distribution) | OOF 0.7268 (+0.0026 vs dlc; better on 5/5 folds) | ~6 min/fold
+- ens dlc+dlc2+dlcs:2+elc+rlc, argmax | OOF 0.7269 ; with MBR t0.5 | OOF 0.7274 -> submission | -
+- elcs: electra-large + soft targets 0.5 | OOF 0.7206 (elc 0.7185) | ~4.5 min/fold alone
+- dlcs2: dlcs seed 7 | OOF 0.7263 (dlc2 0.7239) | ~6 min/fold alone
+- ens all 7 runs equal, argmax | OOF 0.7271 ; MBR | 0.7276
+- ens dlc dlc2 dlcs:2 dlcs2:2 elc elcs:2 rlc + MBR t0.5 | OOF 0.7281 -> submission | -
+- dlcs8: deberta soft weight 0.8 (seed 11) | OOF 0.7226 (MBR) — worse than soft 0.5 | ~6 min/fold
+- rlcs: roberta-large + soft 0.5 | OOF 0.7200 (MBR) vs rlc ~0.716 | ~4.3 min/fold
+- geometric-mean ensembling (log-prob average) | OOF 0.7261 vs arithmetic 0.7281 — dropped | -
+- greedy forward selection (argmax decode): dlcs:3 dlcs8:1 dlcs2:2 rlcs:1 | OOF 0.7290 (MBR 0.7288) -> submission | -
+- dlcsl: deberta soft 0.5, lr 1.5e-5 (seed 21) | OOF 0.7290 single-model argmax (vs 0.7268 at lr 1e-5) | ~6 min/fold
+- elcs2: electra soft seed 7 — folds 2 and 3 diverged (Jaccard ~0.2); reran with seeds 8/9
+- greedy selection incl. dlcsl: dlcsl:4 dlcs:1 | OOF 0.7301 argmax -> submission | -
+- dlcsl2 / dlcsl3: deberta soft lr1.5e-5 seeds 33/55 | OOF 0.7266 / 0.7265 (so dlcsl's 0.7290 is partly seed luck) | ~6-12 min/fold (shared GPUs)
+- dlcs2e: deberta soft lr 2e-5 seed 44 | OOF 0.7266 | ~10 min/fold (shared GPUs)
+- elcs2: electra soft (seed 7, folds 2/3 rerun with seeds 8/9 after divergence) | OOF 0.7219 | ~5-10 min/fold
+- greedy weighted selection over all 14 runs (argmax) | OOF 0.7314 (weights fitted on OOF -> optimistic; not used)
+- FINAL: equal-weight average of all 10 soft-target runs (dlcs dlcs2 dlcsl dlcsl2 dlcsl3 dlcs2e dlcs8 elcs elcs2 rlcs), clean-span models + label-shift post-processing + MBR decoding (temp 0.5) | OOF 0.7309 (neutral .977, pos .564, neg .565) -> submission.csv | -
